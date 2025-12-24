@@ -1,0 +1,8 @@
+# List of source files containing translatable strings.
+# Please keep this file sorted alphabetically.
+data/io.bricksigma.Audiolize.desktop.in
+data/io.bricksigma.Audiolize.metainfo.xml.in
+data/io.bricksigma.Audiolize.gschema.xml
+src/main.c
+src/audiolize-window.c
+src/audiolize-window.ui

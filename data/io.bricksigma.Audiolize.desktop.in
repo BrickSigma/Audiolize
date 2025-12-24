@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=audiolize
+Exec=audiolize
+Icon=io.bricksigma.Audiolize
+Terminal=false
+Type=Application
+Categories=Utility;
+Keywords=GTK;
+StartupNotify=true
+DBusActivatable=true
