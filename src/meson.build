@@ -2,7 +2,8 @@ audiolize_sources = [
   'main.c',
   'audiolize-application.c',
   'audiolize-window.c',
-  'portaudio-common/pa_ringbuffer.c'
+  'portaudio-common/pa_ringbuffer.c',
+  'audio-driver/audio-driver.c'
 ]
 
 audiolize_deps = [
