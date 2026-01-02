@@ -9,7 +9,8 @@
         "--share=ipc",
         "--socket=fallback-x11",
         "--device=dri",
-        "--socket=wayland"
+        "--socket=wayland",
+        "--socket=pulseaudio"
     ],
     "cleanup" : [
         "/include",
@@ -23,6 +24,7 @@
         "*.a"
     ],
     "modules" : [
+        "modules/portaudio.json",
         {
             "name" : "audiolize",
             "builddir" : true,
