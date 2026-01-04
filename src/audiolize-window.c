@@ -20,6 +20,7 @@
 
 #include "audiolize-window.h"
 #include <audio-driver/audio-driver.h>
+#include <fft/fft.h>
 
 struct _AudiolizeWindow
 {
@@ -30,7 +31,11 @@ struct _AudiolizeWindow
 	GtkLabel *label;
 	GtkDropDown *devices_list;
 
+	// Audio driver used to handle input
 	AudioDriver *audio_driver;
+
+	// FFT struct to handle Fourier Transform
+	AudiolizeFFT *fft;
 };
 
 G_DEFINE_FINAL_TYPE(AudiolizeWindow, audiolize_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -49,6 +54,8 @@ audiolize_window_finalize(GObject *gobject)
 {
 	AudiolizeWindow *self = AUDIOLIZE_WINDOW(gobject);
 
+	g_print("Destroying...\n");
+	g_object_unref(self->fft);
 	audio_driver_close(&(self->audio_driver));
 
 	G_OBJECT_CLASS(audiolize_window_parent_class)->finalize(gobject);
@@ -159,6 +166,10 @@ selected_device_changed_cb(GtkDropDown *drop_down,
 	guint selected = gtk_drop_down_get_selected(drop_down);
 
 	audio_driver_set_selected_device(win->audio_driver, selected);
+
+	g_object_unref(win->fft);
+	win->fft = audiolize_fft_new(win->audio_driver->selected_device->defaultSampleRate,
+					   win->audio_driver->ring_buffer);
 }
 
 // Initialize the window.
@@ -183,4 +194,8 @@ audiolize_window_init(AudiolizeWindow *self)
 
 	// Open the input stream
 	audio_driver_open_stream(self->audio_driver);
+
+	// Startup the FFT thread
+	self->fft = audiolize_fft_new(self->audio_driver->selected_device->defaultSampleRate,
+						self->audio_driver->ring_buffer);
 }

@@ -3,13 +3,15 @@ audiolize_sources = [
   'audiolize-application.c',
   'audiolize-window.c',
   'portaudio-common/pa_ringbuffer.c',
-  'audio-driver/audio-driver.c'
+  'audio-driver/audio-driver.c',
+  'fft/fft.c'
 ]
 
 audiolize_deps = [
   dependency('gtk4'),
   dependency('libadwaita-1', version: '>= 1.4'),
-  dependency('portaudio-2.0')
+  dependency('portaudio-2.0'),
+  dependency('fftw3')
 ]
 
 audiolize_sources += gnome.compile_resources('audiolize-resources',

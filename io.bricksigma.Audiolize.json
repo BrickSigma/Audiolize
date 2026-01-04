@@ -25,6 +25,7 @@
     ],
     "modules" : [
         "modules/portaudio.json",
+        "modules/fftw.json",
         {
             "name" : "audiolize",
             "builddir" : true,

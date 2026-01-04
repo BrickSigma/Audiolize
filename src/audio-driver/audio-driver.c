@@ -6,12 +6,12 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -60,11 +60,11 @@ AudioDriver *audio_driver_new(void)
     }
 
     // Setup the ring buffer
-    audio_driver->audio_data = (float *)g_malloc(AUDIO_FRAME_SIZE * RING_BUFFER_SIZE);
+    audio_driver->audio_data = (AudioData *)g_malloc(AUDIO_FRAME_SIZE * RING_BUFFER_SIZE);
 
     audio_driver->ring_buffer = (PaUtilRingBuffer *)g_new0(PaUtilRingBuffer, 1);
     rb_size = PaUtil_InitializeRingBuffer(audio_driver->ring_buffer,
-                                          sizeof(float) * FRAMES_PER_BUFFER * CHANNELS,
+                                          sizeof(AudioData) * FRAMES_PER_BUFFER * CHANNELS,
                                           RING_BUFFER_SIZE,
                                           audio_driver->audio_data);
 
@@ -129,18 +129,18 @@ void audio_driver_set_selected_device(AudioDriver *audio_driver, PaDeviceIndex d
 
 static int
 input_stream_cb(const void *input_buffer,
-				void *output_buffer,
-				unsigned long frame_count,
-				const PaStreamCallbackTimeInfo *time_info,
-				PaStreamCallbackFlags status_flags,
-				void *user_data)
+                void *output_buffer,
+                unsigned long frame_count,
+                const PaStreamCallbackTimeInfo *time_info,
+                PaStreamCallbackFlags status_flags,
+                void *user_data)
 {
-	PaUtilRingBuffer *rb = (PaUtilRingBuffer *)user_data;
-	const float *input = (const float *)input_buffer;
+    PaUtilRingBuffer *rb = (PaUtilRingBuffer *)user_data;
+    const float *input = (const float *)input_buffer;
 
-	PaUtil_WriteRingBuffer(rb, input, 1);
+    PaUtil_WriteRingBuffer(rb, input, 1);
 
-	return 0;
+    return 0;
 }
 
 void audio_driver_open_stream(AudioDriver *audio_driver)

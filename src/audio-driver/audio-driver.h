@@ -25,8 +25,10 @@
 #define FRAMES_PER_BUFFER (256)
 #define CHANNELS (2)
 
+typedef float AudioData;
+
 // Size of input audio frame
-#define AUDIO_FRAME_SIZE (sizeof(float) * FRAMES_PER_BUFFER * CHANNELS)
+#define AUDIO_FRAME_SIZE (sizeof(AudioData) * FRAMES_PER_BUFFER * CHANNELS)
 
 #define RING_BUFFER_SIZE (4)
 
@@ -44,7 +46,7 @@ typedef struct _AudioDriver
     // Input stream
     PaStream *stream;
     // Audio data array for ring buffer
-    float *audio_data;
+    AudioData *audio_data;
     // Ring buffer for audio data
     PaUtilRingBuffer *ring_buffer;
 } AudioDriver;
