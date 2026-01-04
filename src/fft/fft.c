@@ -21,9 +21,16 @@
 #include <fftw3.h>
 #include <portaudio-common/pa_ringbuffer.h>
 #include <audio-driver/audio-driver.h>
+#include <math.h>
 
-// Number of frequency bins to output
-#define FREQUENCIES (6)
+// Number of frequency bins to output.
+#define FREQUENCIES (7)
+
+// Nyquist bin value (should be half of the sampling frame)
+#define NYQUIST_BIN (256)
+
+const unsigned int FREQUENCY_RANGES[FREQUENCIES] = {
+    60, 150, 400, 1000, 2400, 6000, 14000};
 
 /**
  * Struct used to handle the fourier transform thread and data.
@@ -65,15 +72,88 @@ fft_thread_cb(GTask *task,
               gpointer task_data,
               GCancellable *cancellable)
 {
-    static int x = 0;
-    static int thread_id = 0;
-    g_print("Thread started: %d\n", thread_id);
-    thread_id++;
+    AudiolizeFFT *self;
+    ring_buffer_size_t elements_read;
+
+    // This is used for converting the desired frequency to the set bin index
+    double fs_n;
+
+    double output[FREQUENCIES];
+    // Holds the computed amplitude of each K-bin (frequency bin)
+    double mapped_samples[NYQUIST_BIN];
+
+    self = (AudiolizeFFT *)source_object;
+    fs_n = ((double)FRAMES_PER_BUFFER / (double)(self->sample_rate));
+
     while (true)
     {
-        x++; // Used to prevent loop being optimized out (I think...)
+        int last_frequency;
+        int low_bin;
+        int high_bin;
+        double max_amplitude;
+
+        if (g_cancellable_is_cancelled(self->canellable))
+            break;
+
+        elements_read = PaUtil_ReadRingBuffer(self->audio_rb, self->input_data, 1);
+        if (elements_read == 0)
+            continue;
+
+        // Get the average of the left and right samples
+        for (int i = 0; i < FRAMES_PER_BUFFER; i++)
+        {
+            double sample = (double)(self->input_data[i * 2] + self->input_data[i * 2 + 1]);
+            sample /= 2;
+            self->samples[i] = sample;
+        }
+
+        // Execute the fourier transform on the input data
+        fftw_execute(self->fftw_plan);
+
+        // Compute the amplitude of the FFT output
+        for (int i = 0; i < NYQUIST_BIN; i++)
+        {
+            mapped_samples[i] =
+                sqrt((self->out[i][0] * self->out[i][0]) +
+                     (self->out[i][1] * self->out[i][1])) /
+                FRAMES_PER_BUFFER;
+        }
+
+        last_frequency = FREQUENCY_RANGES[0];
+        for (int i = 1; i < FREQUENCIES; i++)
+        {
+            low_bin = (int)floor(last_frequency * fs_n);
+            high_bin = (int)floor(FREQUENCY_RANGES[i] * fs_n);
+
+            max_amplitude = 0;
+            for (int j = low_bin + 1; j <= high_bin; j++)
+            {
+                if (mapped_samples[j] > max_amplitude)
+                    max_amplitude = mapped_samples[j];
+            }
+            output[i - 1] = max_amplitude;
+
+            last_frequency = FREQUENCY_RANGES[i];
+        }
+
+        low_bin = (int)floor(last_frequency * fs_n);
+        high_bin = NYQUIST_BIN;
+
+        max_amplitude = 0;
+        for (int j = low_bin + 1; j <= high_bin; j++)
+        {
+            if (mapped_samples[j] > max_amplitude)
+                max_amplitude = mapped_samples[j];
+        }
+        output[6] = max_amplitude;
+
+        g_print("[");
+        for (int i = 0; i < FREQUENCIES; i++)
+        {
+            g_print("%lf,", output[i]);
+        }
+        g_print("]\n");
     }
-    g_print("%d\n", x);
 }
 
 static void
@@ -107,7 +187,7 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb)
     self->rb_data = (double *)g_malloc(sizeof(double) * FREQUENCIES * RING_BUFFER_SIZE);
     self->out_rb = (PaUtilRingBuffer *)g_new0(PaUtilRingBuffer, 1);
     rb_size = PaUtil_InitializeRingBuffer(self->out_rb,
-                                          sizeof(AudioData) * FRAMES_PER_BUFFER * CHANNELS,
+                                          sizeof(double) * FREQUENCIES,
                                           RING_BUFFER_SIZE,
                                           self->rb_data);
 
@@ -130,7 +210,7 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb)
     // Start the thread for handling the audio data
     self->canellable = g_cancellable_new();
     task = g_task_new(self, self->canellable, fft_finished_cb, NULL);
-    g_task_set_return_on_cancel(task, true);  // Ensure the thread closes when cancelled
+    // g_task_set_return_on_cancel(task, true); // Ensure the thread closes when cancelled
 
     g_task_run_in_thread(task, fft_thread_cb);
     g_object_unref(task);
@@ -144,7 +224,6 @@ audiolize_fft_finalize(GObject *gobject)
     g_print("Closing FFT object\n");
 
     self = AUDIOLIZE_FFT(gobject);
-    g_cancellable_cancel(self->canellable);
     g_object_unref(self->canellable);
 
     fftw_destroy_plan(self->fftw_plan);
@@ -165,6 +244,14 @@ audiolize_fft_class_init(AudiolizeFFTClass *klass)
     GObjectClass *object_class = G_OBJECT_CLASS(klass);
 
     object_class->finalize = audiolize_fft_finalize;
+
+    // Ensure the nyquist frequency is exactly half of the frame per buffer
+    g_assert(FRAMES_PER_BUFFER == (NYQUIST_BIN * 2));
+}
+
+void audiolize_fft_cancel_task(AudiolizeFFT *self)
+{
+    g_cancellable_cancel(self->canellable);
 }
 
 AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb)

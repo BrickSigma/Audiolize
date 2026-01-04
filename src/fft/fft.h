@@ -35,6 +35,9 @@ G_DECLARE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, AUDIOLIZE, FFT, GObject)
  */
 AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb);
 
+// Cancel the FFT thread.
+void audiolize_fft_cancel_task(AudiolizeFFT *self);
+
 G_END_DECLS
 
 #endif // FFT_H

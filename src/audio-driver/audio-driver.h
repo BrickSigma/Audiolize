@@ -22,7 +22,7 @@
 #include <portaudio-common/pa_ringbuffer.h>
 #include <portaudio.h>
 
-#define FRAMES_PER_BUFFER (256)
+#define FRAMES_PER_BUFFER (512)
 #define CHANNELS (2)
 
 typedef float AudioData;

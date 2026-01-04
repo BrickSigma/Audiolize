@@ -55,6 +55,7 @@ audiolize_window_finalize(GObject *gobject)
 	AudiolizeWindow *self = AUDIOLIZE_WINDOW(gobject);
 
 	g_print("Destroying...\n");
+	audiolize_fft_cancel_task(self->fft);
 	g_object_unref(self->fft);
 	audio_driver_close(&(self->audio_driver));
 
@@ -167,6 +168,7 @@ selected_device_changed_cb(GtkDropDown *drop_down,
 
 	audio_driver_set_selected_device(win->audio_driver, selected);
 
+	audiolize_fft_cancel_task(win->fft);
 	g_object_unref(win->fft);
 	win->fft = audiolize_fft_new(win->audio_driver->selected_device->defaultSampleRate,
 					   win->audio_driver->ring_buffer);

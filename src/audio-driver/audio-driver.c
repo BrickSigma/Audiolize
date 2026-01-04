@@ -64,7 +64,7 @@ AudioDriver *audio_driver_new(void)
 
     audio_driver->ring_buffer = (PaUtilRingBuffer *)g_new0(PaUtilRingBuffer, 1);
     rb_size = PaUtil_InitializeRingBuffer(audio_driver->ring_buffer,
-                                          sizeof(AudioData) * FRAMES_PER_BUFFER * CHANNELS,
+                                          AUDIO_FRAME_SIZE,
                                           RING_BUFFER_SIZE,
                                           audio_driver->audio_data);
 
