@@ -30,6 +30,7 @@ struct _AudiolizeWindow
 
 	GtkLabel *label;
 	GtkDropDown *devices_list;
+	GtkDrawingArea *drawing_area;
 
 	// Audio driver used to handle input
 	AudioDriver *audio_driver;
@@ -43,6 +44,7 @@ G_DEFINE_FINAL_TYPE(AudiolizeWindow, audiolize_window, ADW_TYPE_APPLICATION_WIND
 static void
 audiolize_window_dispose(GObject *gobject)
 {
+	g_print("Disposing...\n");
 	gtk_widget_dispose_template(GTK_WIDGET(gobject), AUDIOLIZE_TYPE_WINDOW);
 
 	G_OBJECT_CLASS(audiolize_window_parent_class)->dispose(gobject);
@@ -56,7 +58,7 @@ audiolize_window_finalize(GObject *gobject)
 
 	g_print("Destroying...\n");
 	audiolize_fft_cancel_task(self->fft);
-	g_object_unref(self->fft);
+	g_clear_object(&(self->fft));
 	audio_driver_close(&(self->audio_driver));
 
 	G_OBJECT_CLASS(audiolize_window_parent_class)->finalize(gobject);
@@ -73,6 +75,7 @@ audiolize_window_class_init(AudiolizeWindowClass *klass)
 	gtk_widget_class_set_template_from_resource(widget_class, "/io/bricksigma/Audiolize/audiolize-window.ui");
 	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, label);
 	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, devices_list);
+	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, drawing_area);
 }
 
 static void
@@ -158,6 +161,57 @@ initialize_device_list(AudiolizeWindow *self)
 	g_object_unref(factory);
 }
 
+/**
+ * Resize callback function for the drawing area.
+ *
+ * @param user_data should be the FFT struct pointer (`AudiolizeFFT **`) to do a NULL check
+ * and ensure it exists
+ */
+static void
+drawing_area_resize_cb(GtkDrawingArea *drawing_area,
+					   gint width,
+					   gint height,
+					   gpointer user_data)
+{
+	AudiolizeFFT **fft = user_data;
+
+	if (*fft == NULL)
+		return;
+
+	audiolize_fft_resize_surface(*fft, width, height);
+}
+
+static void
+audiolize_window_draw_function(GtkDrawingArea *drawing_area,
+							   cairo_t *cr,
+							   int width,
+							   int height,
+							   gpointer user_data)
+{
+	// Pass a double pointer to check if it's NULL
+	AudiolizeFFT **fft = (AudiolizeFFT **)user_data;
+
+	if (*fft == NULL)
+		return;
+
+	audiolize_fft_paint_surface(*fft, cr, width, height);
+}
+
+/**
+ * Used to connect the drawing area to the AudiolizeFFT's Cairo surface.
+ *
+ * This should be called once the FFT object has been created/initialized.
+ */
+static void
+audiolize_window_connect_drawing_area(AudiolizeWindow *self)
+{
+	if (self->fft == NULL)
+		return;
+
+	gtk_drawing_area_set_draw_func(self->drawing_area, audiolize_window_draw_function, &(self->fft), NULL);
+	g_signal_connect(self->drawing_area, "resize", G_CALLBACK(drawing_area_resize_cb), &(self->fft));
+}
+
 // Callback used to update the input stream device for portaudio.
 static void
 selected_device_changed_cb(GtkDropDown *drop_down,
@@ -169,9 +223,15 @@ selected_device_changed_cb(GtkDropDown *drop_down,
 	audio_driver_set_selected_device(win->audio_driver, selected);
 
 	audiolize_fft_cancel_task(win->fft);
-	g_object_unref(win->fft);
+	g_clear_object(&(win->fft));
 	win->fft = audiolize_fft_new(win->audio_driver->selected_device->defaultSampleRate,
-					   win->audio_driver->ring_buffer);
+								 win->audio_driver->ring_buffer);
+
+	// Reconnect the drawing area to the new FFT object.
+	audiolize_window_connect_drawing_area(win);
+
+	// Redraw the surface again
+	gtk_widget_queue_resize(GTK_WIDGET(win->drawing_area));
 }
 
 // Initialize the window.
@@ -199,5 +259,7 @@ audiolize_window_init(AudiolizeWindow *self)
 
 	// Startup the FFT thread
 	self->fft = audiolize_fft_new(self->audio_driver->selected_device->defaultSampleRate,
-						self->audio_driver->ring_buffer);
+								  self->audio_driver->ring_buffer);
+
+	audiolize_window_connect_drawing_area(self);
 }

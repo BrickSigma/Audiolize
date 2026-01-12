@@ -62,15 +62,18 @@ struct _AudiolizeFFT
     PaUtilRingBuffer *out_rb;
     // Data array for output ring buffer
     double *rb_data;
+
+    // Cairo surface for drawing to
+    cairo_surface_t *surface;
 };
 
 G_DEFINE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, G_TYPE_OBJECT)
 
 static void
-fft_thread_cb(GTask *task,
-              gpointer source_object,
-              gpointer task_data,
-              GCancellable *cancellable)
+audiolize_fft_thread_cb(GTask *task,
+                        gpointer source_object,
+                        gpointer task_data,
+                        GCancellable *cancellable)
 {
     AudiolizeFFT *self;
     ring_buffer_size_t elements_read;
@@ -147,19 +150,22 @@ fft_thread_cb(GTask *task,
         }
         output[6] = max_amplitude;
 
-        g_print("[");
-        for (int i = 0; i < FREQUENCIES; i++)
-        {
-            g_print("%lf,", output[i]);
-        }
-        g_print("]\n");
+        // g_print("[");
+        // for (int i = 0; i < FREQUENCIES; i++)
+        // {
+        //     g_print("%lf,", output[i]);
+        // }
+        // g_print("]\n");
+
+        // Send the output data to the ring buffer
+        PaUtil_WriteRingBuffer(self->out_rb, output, 1);
     }
 }
 
 static void
-fft_finished_cb(GObject *source_object,
-                GAsyncResult *result,
-                gpointer data)
+audiolize_fft_finished_cb(GObject *source_object,
+                          GAsyncResult *result,
+                          gpointer data)
 {
     g_print("Thread closed\n");
 }
@@ -167,6 +173,46 @@ fft_finished_cb(GObject *source_object,
 static void
 audiolize_fft_init(AudiolizeFFT *self)
 {
+}
+
+// Clear the surface and fill it with a color.
+static void
+audiolize_fft_clear_surface(AudiolizeFFT *self)
+{
+    cairo_t *cr;
+
+    cr = cairo_create(self->surface);
+    cairo_set_source_rgba(cr, 1, 1, 1, 1);
+    cairo_paint(cr);
+    cairo_destroy(cr);
+}
+
+void audiolize_fft_resize_surface(AudiolizeFFT *self,
+                                  gint width,
+                                  gint height)
+{
+    if (self->surface != NULL)
+    {
+        cairo_surface_destroy(self->surface);
+        self->surface = NULL;
+    }
+
+    // Setup the Cairo surface for rendering
+    self->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                               width,
+                                               height);
+
+    audiolize_fft_clear_surface(self);
+}
+
+void
+audiolize_fft_paint_surface(AudiolizeFFT *self,
+                            cairo_t *cr,
+                            int width,
+                            int height)
+{
+    cairo_set_source_surface(cr, self->surface, 0, 0);
+    cairo_paint(cr);
 }
 
 /**
@@ -207,12 +253,15 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb)
     self->out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FRAMES_PER_BUFFER);
     self->fftw_plan = fftw_plan_dft_r2c_1d(FRAMES_PER_BUFFER, self->samples, self->out, FFTW_MEASURE);
 
+    // Setup the drawing area and its callbacks
+    self->surface = NULL;
+
     // Start the thread for handling the audio data
     self->canellable = g_cancellable_new();
-    task = g_task_new(self, self->canellable, fft_finished_cb, NULL);
+    task = g_task_new(self, self->canellable, audiolize_fft_finished_cb, NULL);
     // g_task_set_return_on_cancel(task, true); // Ensure the thread closes when cancelled
 
-    g_task_run_in_thread(task, fft_thread_cb);
+    g_task_run_in_thread(task, audiolize_fft_thread_cb);
     g_object_unref(task);
 }
 
@@ -225,6 +274,11 @@ audiolize_fft_finalize(GObject *gobject)
 
     self = AUDIOLIZE_FFT(gobject);
     g_object_unref(self->canellable);
+
+    if (self->surface != NULL) {
+        cairo_surface_destroy(self->surface);
+        self->surface = NULL;
+    }
 
     fftw_destroy_plan(self->fftw_plan);
     fftw_free(self->out);

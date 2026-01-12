@@ -29,11 +29,18 @@ G_DECLARE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, AUDIOLIZE, FFT, GObject)
 
 /**
  * Create a new FFT struct and start its thread.
- * 
+ *
  * @param `sample_rate` sample rate of the audio input
  * @param `audio_rb` ring buffer pointer for the incomming audio data from portaudio
+ * @param `drawing_area` drawing area widget
  */
 AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb);
+
+// Resizes the Cairo surface for rendering.
+void audiolize_fft_resize_surface(AudiolizeFFT *self, gint width, gint height);
+
+// Copies the surface to the drawing area. Doesn't actually update the surface.
+void audiolize_fft_paint_surface(AudiolizeFFT *self, cairo_t *cr, int width, int height);
 
 // Cancel the FFT thread.
 void audiolize_fft_cancel_task(AudiolizeFFT *self);
