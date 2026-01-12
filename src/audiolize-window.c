@@ -28,7 +28,6 @@ struct _AudiolizeWindow
 
 	/* Template widgets */
 
-	GtkLabel *label;
 	GtkDropDown *devices_list;
 	GtkDrawingArea *drawing_area;
 
@@ -73,7 +72,6 @@ audiolize_window_class_init(AudiolizeWindowClass *klass)
 	G_OBJECT_CLASS(klass)->finalize = audiolize_window_finalize;
 
 	gtk_widget_class_set_template_from_resource(widget_class, "/io/bricksigma/Audiolize/audiolize-window.ui");
-	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, label);
 	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, devices_list);
 	gtk_widget_class_bind_template_child(widget_class, AudiolizeWindow, drawing_area);
 }
