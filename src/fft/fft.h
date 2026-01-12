@@ -34,7 +34,7 @@ G_DECLARE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, AUDIOLIZE, FFT, GObject)
  * @param `audio_rb` ring buffer pointer for the incomming audio data from portaudio
  * @param `drawing_area` drawing area widget
  */
-AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb);
+AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb, GtkDrawingArea *drawing_area);
 
 // Resizes the Cairo surface for rendering.
 void audiolize_fft_resize_surface(AudiolizeFFT *self, gint width, gint height);

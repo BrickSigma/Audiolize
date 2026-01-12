@@ -192,6 +192,7 @@ audiolize_window_draw_function(GtkDrawingArea *drawing_area,
 	if (*fft == NULL)
 		return;
 
+	// Copy the FFT surface to the drawing area
 	audiolize_fft_paint_surface(*fft, cr, width, height);
 }
 
@@ -214,22 +215,23 @@ audiolize_window_connect_drawing_area(AudiolizeWindow *self)
 static void
 selected_device_changed_cb(GtkDropDown *drop_down,
 						   GParamSpec *pspec,
-						   AudiolizeWindow *win)
+						   AudiolizeWindow *self)
 {
 	guint selected = gtk_drop_down_get_selected(drop_down);
 
-	audio_driver_set_selected_device(win->audio_driver, selected);
+	audio_driver_set_selected_device(self->audio_driver, selected);
 
-	audiolize_fft_cancel_task(win->fft);
-	g_clear_object(&(win->fft));
-	win->fft = audiolize_fft_new(win->audio_driver->selected_device->defaultSampleRate,
-								 win->audio_driver->ring_buffer);
+	audiolize_fft_cancel_task(self->fft);
+	g_clear_object(&(self->fft));
+	self->fft = audiolize_fft_new(self->audio_driver->selected_device->defaultSampleRate,
+								  self->audio_driver->ring_buffer,
+								  self->drawing_area);
 
 	// Reconnect the drawing area to the new FFT object.
-	audiolize_window_connect_drawing_area(win);
+	audiolize_window_connect_drawing_area(self);
 
 	// Redraw the surface again
-	gtk_widget_queue_resize(GTK_WIDGET(win->drawing_area));
+	gtk_widget_queue_resize(GTK_WIDGET(self->drawing_area));
 }
 
 // Initialize the window.
@@ -257,7 +259,8 @@ audiolize_window_init(AudiolizeWindow *self)
 
 	// Startup the FFT thread
 	self->fft = audiolize_fft_new(self->audio_driver->selected_device->defaultSampleRate,
-								  self->audio_driver->ring_buffer);
+								  self->audio_driver->ring_buffer,
+								  self->drawing_area);
 
 	audiolize_window_connect_drawing_area(self);
 }

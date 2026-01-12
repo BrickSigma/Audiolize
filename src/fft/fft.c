@@ -65,9 +65,15 @@ struct _AudiolizeFFT
 
     // Cairo surface for drawing to
     cairo_surface_t *surface;
+
+    // Weak reference to GtkDrawingArea to send draw update signal to
+    GtkDrawingArea *drawing_area;
 };
 
 G_DEFINE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, G_TYPE_OBJECT)
+
+// Render the FFT bar graph to the surface. This must run on the main UI thread.
+static gboolean audiolize_fft_render_fft(gpointer user_data);
 
 static void
 audiolize_fft_thread_cb(GTask *task,
@@ -76,7 +82,7 @@ audiolize_fft_thread_cb(GTask *task,
                         GCancellable *cancellable)
 {
     AudiolizeFFT *self;
-    ring_buffer_size_t elements_read;
+    ring_buffer_size_t elements_read, elements_written;
 
     // This is used for converting the desired frequency to the set bin index
     double fs_n;
@@ -148,7 +154,7 @@ audiolize_fft_thread_cb(GTask *task,
             if (mapped_samples[j] > max_amplitude)
                 max_amplitude = mapped_samples[j];
         }
-        output[6] = max_amplitude;
+        output[FREQUENCIES - 1] = max_amplitude;
 
         // g_print("[");
         // for (int i = 0; i < FREQUENCIES; i++)
@@ -158,7 +164,11 @@ audiolize_fft_thread_cb(GTask *task,
         // g_print("]\n");
 
         // Send the output data to the ring buffer
-        PaUtil_WriteRingBuffer(self->out_rb, output, 1);
+        elements_written = PaUtil_WriteRingBuffer(self->out_rb, output, 1);
+
+        if (elements_written == 1)
+            g_main_context_invoke(g_main_context_get_thread_default(),
+                                  audiolize_fft_render_fft, self);
     }
 }
 
@@ -205,14 +215,46 @@ void audiolize_fft_resize_surface(AudiolizeFFT *self,
     audiolize_fft_clear_surface(self);
 }
 
-void
-audiolize_fft_paint_surface(AudiolizeFFT *self,
-                            cairo_t *cr,
-                            int width,
-                            int height)
+static gboolean
+audiolize_fft_render_fft(gpointer user_data)
+{
+    AudiolizeFFT *self;
+    double fft_output[FREQUENCIES];
+    ring_buffer_size_t elements_read;
+
+    self = user_data;
+
+    elements_read = PaUtil_ReadRingBuffer(self->out_rb, fft_output, 1);
+    if (elements_read == 0)
+        return G_SOURCE_REMOVE;
+
+    audiolize_fft_clear_surface(self);
+
+    // Only call the draw queue is the drawing area still exists
+    if (self->drawing_area != NULL)
+        gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
+
+    return G_SOURCE_REMOVE;
+}
+
+void audiolize_fft_paint_surface(AudiolizeFFT *self,
+                                 cairo_t *cr,
+                                 int width,
+                                 int height)
 {
     cairo_set_source_surface(cr, self->surface, 0, 0);
     cairo_paint(cr);
+}
+
+// Used to set the drawing area to NULL on destruction.
+// This is mainly needed if the app is being closed but the fft thread is still running.
+static void
+unref_drawing_area(gpointer data,
+                   GObject *disposed_object)
+{
+    AudiolizeFFT *self = data;
+
+    self->drawing_area = NULL;
 }
 
 /**
@@ -221,7 +263,7 @@ audiolize_fft_paint_surface(AudiolizeFFT *self,
  * @note This MUST be called immediately after the object is created in the `audiolize_fft_new` function.
  */
 static void
-audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb)
+audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb, GtkDrawingArea *drawing_area)
 {
     ring_buffer_size_t rb_size;
     GTask *task;
@@ -253,8 +295,10 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb)
     self->out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FRAMES_PER_BUFFER);
     self->fftw_plan = fftw_plan_dft_r2c_1d(FRAMES_PER_BUFFER, self->samples, self->out, FFTW_MEASURE);
 
-    // Setup the drawing area and its callbacks
+    // Set the drawing surface to NULL and create a weak reference to the drawing area
     self->surface = NULL;
+    g_object_weak_ref(G_OBJECT(drawing_area), unref_drawing_area, self);
+    self->drawing_area = drawing_area;
 
     // Start the thread for handling the audio data
     self->canellable = g_cancellable_new();
@@ -275,7 +319,8 @@ audiolize_fft_finalize(GObject *gobject)
     self = AUDIOLIZE_FFT(gobject);
     g_object_unref(self->canellable);
 
-    if (self->surface != NULL) {
+    if (self->surface != NULL)
+    {
         cairo_surface_destroy(self->surface);
         self->surface = NULL;
     }
@@ -308,12 +353,12 @@ void audiolize_fft_cancel_task(AudiolizeFFT *self)
     g_cancellable_cancel(self->canellable);
 }
 
-AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb)
+AudiolizeFFT *audiolize_fft_new(guint sample_rate, gpointer audio_rb, GtkDrawingArea *drawing_area)
 {
     AudiolizeFFT *fft = AUDIOLIZE_FFT(g_object_new(AUDIOLIZE_TYPE_FFT,
                                                    NULL));
 
-    audiolize_fft_setup(fft, sample_rate, audio_rb);
+    audiolize_fft_setup(fft, sample_rate, audio_rb, drawing_area);
 
     return fft;
 }
