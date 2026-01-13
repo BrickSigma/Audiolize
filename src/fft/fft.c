@@ -27,7 +27,7 @@
 #define FREQUENCIES (7)
 
 // Nyquist bin value (should be half of the sampling frame)
-#define NYQUIST_BIN (256)
+#define NYQUIST_BIN (512)
 
 const unsigned int FREQUENCY_RANGES[FREQUENCIES] = {
     60, 150, 400, 1000, 2400, 6000, 14000};
@@ -111,7 +111,8 @@ audiolize_fft_thread_cb(GTask *task,
         // Get the average of the left and right samples
         for (int i = 0; i < FRAMES_PER_BUFFER; i++)
         {
-            double sample = (double)(self->input_data[i * 2] + self->input_data[i * 2 + 1]);
+            // NOTE: Only using left-side of samples
+            double sample = (double)(self->input_data[i * 2]); //  + self->input_data[i * 2 + 1]
             sample /= 2;
             self->samples[i] = sample;
         }
@@ -155,13 +156,6 @@ audiolize_fft_thread_cb(GTask *task,
                 max_amplitude = mapped_samples[j];
         }
         output[FREQUENCIES - 1] = max_amplitude;
-
-        // g_print("[");
-        // for (int i = 0; i < FREQUENCIES; i++)
-        // {
-        //     g_print("%lf,", output[i]);
-        // }
-        // g_print("]\n");
 
         // Send the output data to the ring buffer
         elements_written = PaUtil_WriteRingBuffer(self->out_rb, output, 1);
@@ -219,8 +213,13 @@ static gboolean
 audiolize_fft_render_fft(gpointer user_data)
 {
     AudiolizeFFT *self;
+    int width, height, bar_width;
     double fft_output[FREQUENCIES];
     ring_buffer_size_t elements_read;
+    cairo_t *cr;
+
+    // Padding between bars
+    const int PADDING = 6;
 
     self = user_data;
 
@@ -228,11 +227,43 @@ audiolize_fft_render_fft(gpointer user_data)
     if (elements_read == 0)
         return G_SOURCE_REMOVE;
 
+    // Ensure the surface exists before rendering
+    if (self->surface == NULL)
+        return G_SOURCE_REMOVE;
+
+    width = cairo_image_surface_get_width(self->surface);
+    height = cairo_image_surface_get_height(self->surface);
+
+    bar_width = width / FREQUENCIES;
+
+    cr = cairo_create(self->surface);
+
     audiolize_fft_clear_surface(self);
+
+    // Draw the FFT graph
+    // g_print("[");
+    for (int i = 0; i < FREQUENCIES; i++)
+    {
+        int bar_height;
+        // Let's scale the FFT output values up by x10 to easier reflect amplitudes
+        fft_output[i] *= 10;
+        // We can now multiply it by the max height of the surface we'd like to use
+        fft_output[i] *= height * 1.25;
+
+        bar_height = (int)ceil(fft_output[i]);
+
+        // g_print("%lf,", fft_output[i]);
+        cairo_set_source_rgb(cr, 1, 0, 0);
+        cairo_rectangle(cr, i * bar_width, height - bar_height, bar_width, bar_height);
+        cairo_fill(cr);
+    }
+    // g_print("], %d, %d\n", width, height);
 
     // Only call the draw queue is the drawing area still exists
     if (self->drawing_area != NULL)
         gtk_widget_queue_draw(GTK_WIDGET(self->drawing_area));
+
+    cairo_destroy(cr);
 
     return G_SOURCE_REMOVE;
 }
