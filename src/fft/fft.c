@@ -27,7 +27,10 @@
 #define FREQUENCIES (7)
 
 // Nyquist bin value (should be half of the sampling frame)
-#define NYQUIST_BIN (512)
+#define NYQUIST_BIN (FRAMES_PER_BUFFER / 2)
+
+// Defines the number of samples to skip
+#define SKIP_SAMPLES (4)
 
 const unsigned int FREQUENCY_RANGES[FREQUENCIES] = {
     60, 150, 400, 1000, 2400, 6000, 14000};
@@ -83,6 +86,8 @@ audiolize_fft_thread_cb(GTask *task,
 {
     AudiolizeFFT *self;
     ring_buffer_size_t elements_read, elements_written;
+    // Counter used to skip every Nth sample, this helps slow down the "jumps" in the bars
+    unsigned int counter;
 
     // This is used for converting the desired frequency to the set bin index
     double fs_n;
@@ -93,6 +98,8 @@ audiolize_fft_thread_cb(GTask *task,
 
     self = (AudiolizeFFT *)source_object;
     fs_n = ((double)FRAMES_PER_BUFFER / (double)(self->sample_rate));
+
+    counter = 0;
 
     while (true)
     {
@@ -106,6 +113,9 @@ audiolize_fft_thread_cb(GTask *task,
 
         elements_read = PaUtil_ReadRingBuffer(self->audio_rb, self->input_data, 1);
         if (elements_read == 0)
+            continue;
+
+        if ((++counter % SKIP_SAMPLES) != 0)
             continue;
 
         // Get the average of the left and right samples
@@ -150,7 +160,7 @@ audiolize_fft_thread_cb(GTask *task,
         high_bin = NYQUIST_BIN;
 
         max_amplitude = 0;
-        for (int j = low_bin + 1; j <= high_bin; j++)
+        for (int j = low_bin + 1; j < high_bin; j++)
         {
             if (mapped_samples[j] > max_amplitude)
                 max_amplitude = mapped_samples[j];
@@ -241,23 +251,23 @@ audiolize_fft_render_fft(gpointer user_data)
     audiolize_fft_clear_surface(self);
 
     // Draw the FFT graph
-    // g_print("[");
+    g_print("[");
     for (int i = 0; i < FREQUENCIES; i++)
     {
         int bar_height;
         // Let's scale the FFT output values up by x10 to easier reflect amplitudes
         fft_output[i] *= 10;
         // We can now multiply it by the max height of the surface we'd like to use
-        fft_output[i] *= height * 1.25;
+        fft_output[i] *= height * 1.0;
 
         bar_height = (int)ceil(fft_output[i]);
 
-        // g_print("%lf,", fft_output[i]);
+        g_print("%d,", bar_height);
         cairo_set_source_rgb(cr, 1, 0, 0);
         cairo_rectangle(cr, i * bar_width, height - bar_height, bar_width, bar_height);
         cairo_fill(cr);
     }
-    // g_print("], %d, %d\n", width, height);
+    g_print("], %d, %d\n", width, height);
 
     // Only call the draw queue is the drawing area still exists
     if (self->drawing_area != NULL)
