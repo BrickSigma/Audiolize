@@ -17,7 +17,8 @@
  */
 
 #include <audio-driver/audio-driver.h>
-#include <gtk/gtk.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /**
  * Create a new audio driver.
@@ -32,7 +33,7 @@ AudioDriver *audio_driver_new(void)
     ring_buffer_size_t rb_size;
     PaError err;
 
-    audio_driver = (AudioDriver *)g_new0(AudioDriver, 1);
+    audio_driver = (AudioDriver *)malloc(sizeof(AudioDriver));
 
     // Initialize PortAudio
     err = Pa_Initialize();
@@ -41,7 +42,7 @@ AudioDriver *audio_driver_new(void)
         fprintf(stderr, "ERROR: Could not initialize PortAudio: %s\n", Pa_GetErrorText(err));
         goto audio_driver_new_error;
     }
-    g_print("PortAudio initialized!\n");
+    printf("PortAudio initialized!\n");
 
     // Get the list of connected devices
     audio_driver->num_devices = Pa_GetDeviceCount();
@@ -52,17 +53,17 @@ AudioDriver *audio_driver_new(void)
         goto audio_driver_new_error;
     }
 
-    audio_driver->devices = g_new(PaDeviceInfo *, audio_driver->num_devices);
+    audio_driver->devices = (PaDeviceInfo **)malloc(sizeof(PaDeviceInfo *) * audio_driver->num_devices);
     for (int i = 0; i < audio_driver->num_devices; i++)
     {
         audio_driver->devices[i] = (PaDeviceInfo *)Pa_GetDeviceInfo(i);
-        g_print("%02d: %s\n", i, audio_driver->devices[i]->name);
+        printf("%02d: %s\n", i, audio_driver->devices[i]->name);
     }
 
     // Setup the ring buffer
-    audio_driver->audio_data = (AudioData *)g_malloc(AUDIO_FRAME_SIZE * RING_BUFFER_SIZE);
+    audio_driver->audio_data = (AudioData *)malloc(AUDIO_FRAME_SIZE * RING_BUFFER_SIZE);
 
-    audio_driver->ring_buffer = (PaUtilRingBuffer *)g_new0(PaUtilRingBuffer, 1);
+    audio_driver->ring_buffer = (PaUtilRingBuffer *)malloc(sizeof(PaUtilRingBuffer));
     rb_size = PaUtil_InitializeRingBuffer(audio_driver->ring_buffer,
                                           AUDIO_FRAME_SIZE,
                                           RING_BUFFER_SIZE,
@@ -81,10 +82,10 @@ AudioDriver *audio_driver_new(void)
     return audio_driver;
 
 audio_driver_new_error:
-    g_free(audio_driver->ring_buffer);
-    g_free(audio_driver->audio_data);
-    g_free(audio_driver->devices);
-    g_free(audio_driver);
+    free(audio_driver->ring_buffer);
+    free(audio_driver->audio_data);
+    free(audio_driver->devices);
+    free(audio_driver);
     return NULL;
 }
 
@@ -96,10 +97,10 @@ void audio_driver_close(AudioDriver **audio_driver)
     audio_driver_close_stream(*audio_driver);
 
     // Release allocated resources
-    g_free((*audio_driver)->devices);
-    g_free((*audio_driver)->audio_data);
-    g_free((*audio_driver)->ring_buffer);
-    g_free(*audio_driver);
+    free((*audio_driver)->devices);
+    free((*audio_driver)->audio_data);
+    free((*audio_driver)->ring_buffer);
+    free(*audio_driver);
 
     *audio_driver = NULL;
 
@@ -119,7 +120,7 @@ void audio_driver_set_selected_device(AudioDriver *audio_driver, PaDeviceIndex d
     audio_driver->selected_index = device_index;
     audio_driver->selected_device = audio_driver->devices[device_index];
 
-    g_print("Device changed to: %s\n", audio_driver->selected_device->name);
+    printf("Device changed to: %s\n", audio_driver->selected_device->name);
 
     // Close the currently open stream
     audio_driver_close_stream(audio_driver);

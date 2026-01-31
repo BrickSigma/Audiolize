@@ -32,6 +32,9 @@
 // Defines the number of samples to skip
 #define SKIP_SAMPLES (4)
 
+// Rendering FPS
+#define FPS (60)
+
 const unsigned int FREQUENCY_RANGES[FREQUENCIES] = {
     60, 150, 400, 1000, 2400, 6000, 14000};
 
@@ -69,14 +72,35 @@ struct _AudiolizeFFT
     // Cairo surface for drawing to
     cairo_surface_t *surface;
 
+    // Next set of bars to render in the next frame
+    int bar_heights[FREQUENCIES];
+
+    /**
+     * Frame rate difference to recording speed.
+     * 
+     * Calculated as:
+```python
+audio_hz = (SAMPLE_SIZE/SAMPLE_RATE)*SKIP_FRAMES
+
+fps_diff = FPS*audio_hz
+```
+     */
+    double fps_diff;
+
+    // Source ID of the rendering timeout
+    guint timeout_id;
+
     // Weak reference to GtkDrawingArea to send draw update signal to
     GtkDrawingArea *drawing_area;
 };
 
 G_DEFINE_FINAL_TYPE(AudiolizeFFT, audiolize_fft, G_TYPE_OBJECT)
 
-// Render the FFT bar graph to the surface. This must run on the main UI thread.
-static gboolean audiolize_fft_render_fft(gpointer user_data);
+// Compute the bar heights for the next frame. This must be done on the main thread to avoid a race condition
+static gboolean audiolize_fft_compute_bar_heights(gpointer user_data);
+
+// Render the frame
+static gboolean audiolize_fft_render(gpointer user_data);
 
 static void
 audiolize_fft_thread_cb(GTask *task,
@@ -172,7 +196,7 @@ audiolize_fft_thread_cb(GTask *task,
 
         if (elements_written == 1)
             g_main_context_invoke(g_main_context_get_thread_default(),
-                                  audiolize_fft_render_fft, self);
+                                  audiolize_fft_compute_bar_heights, self);
     }
 }
 
@@ -220,22 +244,59 @@ void audiolize_fft_resize_surface(AudiolizeFFT *self,
 }
 
 static gboolean
-audiolize_fft_render_fft(gpointer user_data)
+audiolize_fft_compute_bar_heights(gpointer user_data)
 {
     AudiolizeFFT *self;
-    int width, height, bar_width;
+    int height;
     double fft_output[FREQUENCIES];
     ring_buffer_size_t elements_read;
-    cairo_t *cr;
-
-    // Padding between bars
-    const int PADDING = 6;
 
     self = user_data;
 
     elements_read = PaUtil_ReadRingBuffer(self->out_rb, fft_output, 1);
     if (elements_read == 0)
         return G_SOURCE_REMOVE;
+
+    // Ensure the surface exists before rendering
+    if (self->surface == NULL)
+        return G_SOURCE_REMOVE;
+
+    height = cairo_image_surface_get_height(self->surface);
+
+    // Draw the FFT graph
+    //g_print("[");
+    for (int i = 0; i < FREQUENCIES; i++)
+    {
+        int bar_height;
+        // Let's scale the FFT output values up by x10 to easier reflect amplitudes
+        fft_output[i] *= 10;
+        // We can now multiply it by the max height of the surface we'd like to use
+        fft_output[i] *= height * 1.0;
+
+        bar_height = (int)ceil(fft_output[i]);
+
+        self->bar_heights[i] = bar_height;
+
+        //g_print("%d,", bar_height);
+    }
+    //g_print("]\n");
+
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+audiolize_fft_render(gpointer user_data)
+{
+    // The current height of the bars from the last render
+    static int current_bar_heights[FREQUENCIES] = {0};
+    AudiolizeFFT *self;
+    int width, height, bar_width;
+    cairo_t *cr;
+
+    // Padding between bars
+    const int PADDING = 6;
+
+    self = user_data;
 
     // Ensure the surface exists before rendering
     if (self->surface == NULL)
@@ -251,23 +312,20 @@ audiolize_fft_render_fft(gpointer user_data)
     audiolize_fft_clear_surface(self);
 
     // Draw the FFT graph
-    g_print("[");
     for (int i = 0; i < FREQUENCIES; i++)
     {
-        int bar_height;
-        // Let's scale the FFT output values up by x10 to easier reflect amplitudes
-        fft_output[i] *= 10;
-        // We can now multiply it by the max height of the surface we'd like to use
-        fft_output[i] *= height * 1.0;
+        int bar_height = current_bar_heights[i];
+        double bar_diff = self->bar_heights[i] - bar_height;
 
-        bar_height = (int)ceil(fft_output[i]);
+        bar_diff /= self->fps_diff;
+        bar_height += bar_diff;
 
-        g_print("%d,", bar_height);
+        current_bar_heights[i] = bar_height;
+
         cairo_set_source_rgb(cr, 1, 0, 0);
         cairo_rectangle(cr, i * bar_width, height - bar_height, bar_width, bar_height);
         cairo_fill(cr);
     }
-    g_print("], %d, %d\n", width, height);
 
     // Only call the draw queue is the drawing area still exists
     if (self->drawing_area != NULL)
@@ -275,7 +333,7 @@ audiolize_fft_render_fft(gpointer user_data)
 
     cairo_destroy(cr);
 
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 void audiolize_fft_paint_surface(AudiolizeFFT *self,
@@ -308,8 +366,13 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb, Gt
 {
     ring_buffer_size_t rb_size;
     GTask *task;
+    double audio_hz;
 
     self->sample_rate = sample_rate;
+
+    audio_hz = ((double)FRAMES_PER_BUFFER/(double)sample_rate)*SKIP_SAMPLES;
+    self->fps_diff = audio_hz*FPS;
+
     self->audio_rb = audio_rb;
 
     // Setup output ring buffer
@@ -341,6 +404,8 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb, Gt
     g_object_weak_ref(G_OBJECT(drawing_area), unref_drawing_area, self);
     self->drawing_area = drawing_area;
 
+    self->timeout_id = g_timeout_add((guint)ceil((1000.0f/FPS)), audiolize_fft_render, self);
+
     // Start the thread for handling the audio data
     self->canellable = g_cancellable_new();
     task = g_task_new(self, self->canellable, audiolize_fft_finished_cb, NULL);
@@ -359,6 +424,9 @@ audiolize_fft_finalize(GObject *gobject)
 
     self = AUDIOLIZE_FFT(gobject);
     g_object_unref(self->canellable);
+
+    // Remove the timeout instance
+    g_source_remove(self->timeout_id);
 
     if (self->surface != NULL)
     {
