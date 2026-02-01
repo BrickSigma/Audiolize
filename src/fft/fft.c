@@ -30,13 +30,21 @@
 #define NYQUIST_BIN (FRAMES_PER_BUFFER / 2)
 
 // Defines the number of samples to skip
-#define SKIP_SAMPLES (4)
+#define SKIP_SAMPLES (6)
 
 // Rendering FPS
 #define FPS (60)
 
+// Frequency ranges for each bar
 const unsigned int FREQUENCY_RANGES[FREQUENCIES] = {
     60, 150, 400, 1000, 2400, 6000, 14000};
+
+// Multipler used to adjust the height of each bar accordingly
+const double FREQUENCY_MULTIPLIER[FREQUENCIES] = {
+    1.5f, 1.5f, 2.5f, 3.0f, 7.5f, 12.5f, 45.0f};
+
+// Max height controller for a bar
+const double MAX_HEIGHT = 0.8f;
 
 /**
  * Struct used to handle the fourier transform thread and data.
@@ -77,7 +85,7 @@ struct _AudiolizeFFT
 
     /**
      * Frame rate difference to recording speed.
-     * 
+     *
      * Calculated as:
 ```python
 audio_hz = (SAMPLE_SIZE/SAMPLE_RATE)*SKIP_FRAMES
@@ -220,7 +228,8 @@ audiolize_fft_clear_surface(AudiolizeFFT *self)
     cairo_t *cr;
 
     cr = cairo_create(self->surface);
-    cairo_set_source_rgba(cr, 1, 1, 1, 1);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_paint(cr);
     cairo_destroy(cr);
 }
@@ -264,22 +273,22 @@ audiolize_fft_compute_bar_heights(gpointer user_data)
     height = cairo_image_surface_get_height(self->surface);
 
     // Draw the FFT graph
-    //g_print("[");
+    // g_print("[");
     for (int i = 0; i < FREQUENCIES; i++)
     {
         int bar_height;
         // Let's scale the FFT output values up by x10 to easier reflect amplitudes
         fft_output[i] *= 10;
         // We can now multiply it by the max height of the surface we'd like to use
-        fft_output[i] *= height * 1.0;
+        fft_output[i] *= height * FREQUENCY_MULTIPLIER[i] * MAX_HEIGHT;
 
         bar_height = (int)ceil(fft_output[i]);
 
         self->bar_heights[i] = bar_height;
 
-        //g_print("%d,", bar_height);
+        // g_print("%d,", bar_height);
     }
-    //g_print("]\n");
+    // g_print("]\n");
 
     return G_SOURCE_REMOVE;
 }
@@ -323,7 +332,7 @@ audiolize_fft_render(gpointer user_data)
         current_bar_heights[i] = bar_height;
 
         cairo_set_source_rgb(cr, 1, 0, 0);
-        cairo_rectangle(cr, i * bar_width, height - bar_height, bar_width, bar_height);
+        cairo_rectangle(cr, (i * bar_width) + PADDING, height - bar_height, bar_width - (PADDING * 2), bar_height);
         cairo_fill(cr);
     }
 
@@ -370,8 +379,8 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb, Gt
 
     self->sample_rate = sample_rate;
 
-    audio_hz = ((double)FRAMES_PER_BUFFER/(double)sample_rate)*SKIP_SAMPLES;
-    self->fps_diff = audio_hz*FPS;
+    audio_hz = ((double)FRAMES_PER_BUFFER / (double)sample_rate) * SKIP_SAMPLES;
+    self->fps_diff = audio_hz * FPS;
 
     self->audio_rb = audio_rb;
 
@@ -404,7 +413,7 @@ audiolize_fft_setup(AudiolizeFFT *self, guint sample_rate, gpointer audio_rb, Gt
     g_object_weak_ref(G_OBJECT(drawing_area), unref_drawing_area, self);
     self->drawing_area = drawing_area;
 
-    self->timeout_id = g_timeout_add((guint)ceil((1000.0f/FPS)), audiolize_fft_render, self);
+    self->timeout_id = g_timeout_add((guint)ceil((1000.0f / FPS)), audiolize_fft_render, self);
 
     // Start the thread for handling the audio data
     self->canellable = g_cancellable_new();
